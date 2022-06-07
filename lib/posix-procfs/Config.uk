@@ -1,0 +1,4 @@
+config LIBPROCFS
+	bool "procfs: simple fs prototype"
+	default n
+	depends on LIBVFSCORE
