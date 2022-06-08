@@ -40,6 +40,7 @@
 #include <dirent.h>
 #include <sys/param.h>
 
+#include <stdio.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
@@ -264,9 +265,36 @@ procfs_create(struct vnode *dvp, char *name, mode_t mode)
 static char *
 read_meminfo()
 {
-	char *to_read = malloc(10 * sizeof(char));
+	struct uk_alloc_stats *stats = malloc(sizeof(stats));
+	char *to_read = malloc(1000 * sizeof(char));;
 
-	strcpy(to_read, "Hello from meminfo!\n");
+	uk_alloc_stats_get_global(stats);
+
+	sprintf(to_read, 
+            "last_alloc_size:\t%ld\n"
+            "max_alloc_size:\t\t%ld\n"
+            "min_alloc_size:\t\t%ld\n"
+            "tot_nb_allocs:\t\t%ld\n"
+            "tot_nb_frees:\t\t%ld\n"
+            "cur_nb_allocs:\t\t%ld\n"
+            "max_nb_allocs:\t\t%ld\n"
+            "cur_mem_use:\t\t%ld\n"
+            "max_mem_use:\t\t%ld\n"
+            "nb_enomem:\t\t%ld\n",
+			stats->last_alloc_size,
+			stats->max_alloc_size,
+			stats->min_alloc_size,
+			stats->tot_nb_allocs,
+			stats->tot_nb_frees,
+			stats->cur_nb_allocs,
+			stats->max_nb_allocs,
+			stats->cur_mem_use,
+			stats->max_mem_use,
+			stats->nb_enomem
+			);
+
+
+
 
 	return to_read;
 }
@@ -280,6 +308,7 @@ procfs_read(struct vnode *vp, struct vfscore_file *fp __unused,
 	char *return_me;
 
 	uk_pr_debug("%s: path=%s\n", __func__, fp->f_dentry->d_path);
+	
 
 	if (vp->v_size - uio->uio_offset < uio->uio_resid)
 		len = vp->v_size - uio->uio_offset;
@@ -434,7 +463,7 @@ procfs_open(struct vfscore_file *fp)
 }
 
 static int
-procfs_close(struct vnode *vp, struct vfscore_file *fp)
+procfs_close(struct vnode *vp __unused, struct vfscore_file *fp)
 {
 
 	uk_pr_debug("%s: fd=%d\n", __func__, fp->fd);
