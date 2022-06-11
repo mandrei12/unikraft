@@ -78,7 +78,7 @@ procfs_mount(struct mount *mp, const char *dev __unused,
 	    int flags __unused, const void *data __unused)
 {
 	struct procfs_node *np;
-	struct procfs_node *meminfo;
+	struct procfs_node *meminfo, *procinfo, *info;
 
 	/* Create a root node */
 	np = procfs_allocate_node("/", VDIR);
@@ -89,6 +89,11 @@ procfs_mount(struct mount *mp, const char *dev __unused,
 	meminfo = procfs_allocate_node("meminfo", VREG);
 	np->rn_child = meminfo;
 
+	procinfo = procfs_allocate_node("procinfo", VREG);
+	meminfo->rn_next = procinfo;
+
+	info = procfs_allocate_node("version", VREG);
+	procinfo->rn_next = info;
 	
 	return 0;
 }

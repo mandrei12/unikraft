@@ -1,21 +1,28 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <stdlib.h>
+	
+#include <unistd.h>
+
 
 int main()
 {
-	int fd1 = open("meminfo", O_WRONLY /* | O_CREAT */);
 	char buf[200];	
-
-		
-	fd1 = open("meminfo", O_RDONLY);
-
-	buf[0] = '\0';
+	int fd1 = open("meminfo", O_RDONLY /* | O_CREAT */);
+	
+	
 	read(fd1, buf, 200);
 	printf("%s", buf);
 
+	int fd3 = open("version", O_RDONLY /* | O_CREAT */);
+	read(fd3, buf, 200);
+	printf("%s", buf);
+
+
 	close(fd1);
-	close();
+	close(fd3);
+
 
 	return 0;
 	

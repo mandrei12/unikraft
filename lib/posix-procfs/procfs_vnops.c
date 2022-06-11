@@ -56,6 +56,13 @@
 #include <fcntl.h>
 #include <vfscore/fs.h>
 
+/* for the /proc/version */
+#include <uk/version.h>
+// #include <uk/banner.h>
+#include <uk/config.h>
+
+
+
 static struct uk_mutex procfs_lock = UK_MUTEX_INITIALIZER(procfs_lock);
 static uint64_t inode_count = 1; /* inode 0 is reserved to root */
 
@@ -263,7 +270,7 @@ procfs_create(struct vnode *dvp, char *name, mode_t mode)
 
 /* This function will be responsible for generating the meminfo data*/
 static char *
-read_meminfo()
+read_meminfo(void)
 {
 	struct uk_alloc_stats *stats = malloc(sizeof(stats));
 	char *to_read = malloc(1000 * sizeof(char));;
@@ -292,9 +299,24 @@ read_meminfo()
 			stats->max_mem_use,
 			stats->nb_enomem
 			);
+	return to_read;
+}
 
+static char *
+read_version(void)
+{
+	char *to_read = malloc(50 * sizeof(char));
 
+	sprintf(to_read,
+			"Unikraft "
+			STRINGIFY(UK_CODENAME) " "
+			STRINGIFY(UK_FULLVERSION) "\n"
+			);
+	// printf("Unikraft "
+	// 	STRINGIFY(UK_CODENAME) " "
+	// 	STRINGIFY(UK_FULLVERSION) "\n");
 
+	// uk_version();
 
 	return to_read;
 }
@@ -317,12 +339,42 @@ procfs_read(struct vnode *vp, struct vfscore_file *fp __unused,
 
 	set_times_to_now(&(np->rn_atime), NULL, NULL);
 
+	// switch (fp->f_dentry->d_path) {
+	// case "/meminfo":
+	// 	uk_pr_debug("\n\nI have identified meminfo file\n\n");
+	// 	return_me = read_meminfo();
+	// 	return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
+	// 	break;
+	// case "/version":
+	// 	uk_pr_debug("\n\nI have identified version file\n\n");
+	// 	return_me = read_version();
+	// 	return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
+	// 	break;
+	// default:
+	// 	return vfscore_uiomove(np->rn_buf + uio->uio_offset, len, uio);
+	// 	break;
+	// }	
 	if (strcmp(fp->f_dentry->d_path, "/meminfo") == 0) {
+		uk_pr_debug("\n\nI have identified meminfo file\n\n");
 		return_me = read_meminfo();
-		return vfscore_uiomove(return_me, strlen(return_me), uio);
+		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
 	}
+
+	if (strcmp(fp->f_dentry->d_path, "/procinfo") == 0) {
+		uk_pr_debug("\n\nI have identified procinfo file\n\n");
+		// return_me = read_meminfo();
+		return vfscore_uiomove("aaa", 5, uio);
+	}
+
+	if (strcmp(fp->f_dentry->d_path, "/version") == 0) {
+		uk_pr_debug("\n\nI have identified version file\n\n");
+		return_me = read_version();
+		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
+		// uk_version();
+		// return vfscore_uiomove("", 1, uio);
+	}
+
 	return vfscore_uiomove(np->rn_buf + uio->uio_offset, len, uio);
-	
 }
 
 
@@ -458,6 +510,7 @@ procfs_open(struct vfscore_file *fp)
 	char *path = fp->f_dentry->d_path;
 
 	uk_pr_debug("%s: path=%s\n", __func__, path);
+	uk_pr_debug("-------------------\n");
 
 	return 0;
 }
