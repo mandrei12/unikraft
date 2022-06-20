@@ -56,11 +56,24 @@
 #include <fcntl.h>
 #include <vfscore/fs.h>
 
-/* for the /proc/version */
-#include <uk/version.h>
-// #include <uk/banner.h>
-#include <uk/config.h>
 
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+extern struct thread_main_arg * get_main_thread_arguments(void);
+struct thread_main_arg {
+	int argc;
+	char **argv;
+};
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+
+#if defined(CONFIG_LIBPROCFS_FIELSYSTEMS) || defined(CONFIG_LIBPROCFS_MOUNTS)
+extern const struct vfscore_fs_type *uk_fslist_start;
+extern const struct vfscore_fs_type *uk_fslist_end;
+
+#define for_each_fs(iter)			\
+	for (iter = &uk_fslist_start;	\
+	     iter < &uk_fslist_end;		\
+	     iter++)
+#endif
 
 
 static struct uk_mutex procfs_lock = UK_MUTEX_INITIALIZER(procfs_lock);
@@ -128,8 +141,6 @@ static struct procfs_node *
 procfs_add_node(struct procfs_node *dnp, char *name, int type)
 {
 	struct procfs_node *np, *prev;
-
-	uk_pr_debug("i enter procfs_add_node with name %s\n", name);
 
 	np = procfs_allocate_node(name, type);
 	if (np == NULL)
@@ -268,9 +279,8 @@ procfs_create(struct vnode *dvp, char *name, mode_t mode)
 	return 0;
 }
 
-/* This function will be responsible for generating the meminfo data*/
-static char *
-read_meminfo(void)
+#ifdef CONFIG_LIBPROCFS_MEMINFO
+static char *read_meminfo(void)
 {
 	struct uk_alloc_stats *stats = malloc(sizeof(stats));
 	char *to_read = malloc(1000 * sizeof(char));;
@@ -299,11 +309,13 @@ read_meminfo(void)
 			stats->max_mem_use,
 			stats->nb_enomem
 			);
+
 	return to_read;
 }
+#endif /* CONFIG_LIBPROCFS_MEMINFO */
 
-static char *
-read_version(void)
+#ifdef CONFIG_LIBPROCFS_VERSION
+static char *read_version(void)
 {
 	char *to_read = malloc(50 * sizeof(char));
 
@@ -312,14 +324,84 @@ read_version(void)
 			STRINGIFY(UK_CODENAME) " "
 			STRINGIFY(UK_FULLVERSION) "\n"
 			);
-	// printf("Unikraft "
-	// 	STRINGIFY(UK_CODENAME) " "
-	// 	STRINGIFY(UK_FULLVERSION) "\n");
-
-	// uk_version();
 
 	return to_read;
 }
+#endif /* CONFIG_LIBPROCFS_VERSION */
+
+
+
+
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+/* it requires the structure and lib-newlibc */
+static char *read_cmdline(void)
+{
+	char *to_read = malloc(50 * sizeof(char));
+	struct thread_main_arg *arg = get_main_thread_arguments();
+
+	strcpy(to_read, arg->argv[0]);
+	for (int i = 1; i < arg->argc; i++) {
+		strcat(to_read, " ");
+		strcat(to_read, arg->argv[i]);
+	}
+	strcat(to_read, "\n");
+
+	return to_read;
+}
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+
+
+
+#ifdef CONFIG_LIBPROCFS_FIELSYSTEMS
+static char *read_filesystems(void)
+{
+	char *to_read = malloc(100 * sizeof(char));
+	const struct vfscore_fs_type *fs = NULL, **__fs;
+
+	for_each_fs(__fs) {
+		fs = *__fs;
+		if (!fs || !fs->vs_name)
+			continue;
+
+		strcat(to_read, fs->vs_name);
+		strcat(to_read, "\n");
+	}
+
+	return to_read;
+}
+#endif /* CONFIG_LIBPROCFS_FIELSYSTEMS */
+
+#ifdef CONFIG_LIBPROCFS_MOUNTS
+static char *read_mounts(void)
+{
+	char *to_read = malloc(100 * sizeof(char));
+	const struct vfscore_fs_type *fs = NULL, **__fs;
+
+	for_each_fs(__fs) {
+		fs = *__fs;
+		if (!fs || !fs->vs_name)
+			continue;
+
+		if (strcmp(fs->vs_name, "9pfs") == 0) 
+			continue;
+
+		strcat(to_read, fs->vs_name);
+		strcat(to_read, "\t");
+		if (strcmp(fs->vs_name, "ramfs") == 0) {
+			strcat(to_read, "/");
+		} else {
+			char dir[15];
+			strcpy(dir, fs->vs_name);
+			dir[strlen(fs->vs_name) - 2] = '\0';
+			strcat(to_read, "/");
+			strcat(to_read, dir);
+		}
+		strcat(to_read, "\n");
+	}
+
+	return to_read;
+}
+#endif /* CONFIG_LIBPROCFS_MOUNTS */
 
 static int
 procfs_read(struct vnode *vp, struct vfscore_file *fp __unused,
@@ -327,10 +409,7 @@ procfs_read(struct vnode *vp, struct vfscore_file *fp __unused,
 {
 	struct procfs_node *np =  vp->v_data;
 	size_t len;
-	char *return_me;
-
-	uk_pr_debug("%s: path=%s\n", __func__, fp->f_dentry->d_path);
-	
+	char *return_me;	
 
 	if (vp->v_size - uio->uio_offset < uio->uio_resid)
 		len = vp->v_size - uio->uio_offset;
@@ -338,41 +417,37 @@ procfs_read(struct vnode *vp, struct vfscore_file *fp __unused,
 		len = uio->uio_resid;
 
 	set_times_to_now(&(np->rn_atime), NULL, NULL);
-
-	// switch (fp->f_dentry->d_path) {
-	// case "/meminfo":
-	// 	uk_pr_debug("\n\nI have identified meminfo file\n\n");
-	// 	return_me = read_meminfo();
-	// 	return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
-	// 	break;
-	// case "/version":
-	// 	uk_pr_debug("\n\nI have identified version file\n\n");
-	// 	return_me = read_version();
-	// 	return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
-	// 	break;
-	// default:
-	// 	return vfscore_uiomove(np->rn_buf + uio->uio_offset, len, uio);
-	// 	break;
-	// }	
+	
+#ifdef CONFIG_LIBPROCFS_MEMINFO
 	if (strcmp(fp->f_dentry->d_path, "/meminfo") == 0) {
-		uk_pr_debug("\n\nI have identified meminfo file\n\n");
 		return_me = read_meminfo();
 		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
 	}
-
-	if (strcmp(fp->f_dentry->d_path, "/procinfo") == 0) {
-		uk_pr_debug("\n\nI have identified procinfo file\n\n");
-		// return_me = read_meminfo();
-		return vfscore_uiomove("aaa", 5, uio);
+#endif /* CONFIG_LIBPROCFS_MEMINFO */
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+	if (strcmp(fp->f_dentry->d_path, "/cmdline") == 0) {
+		return_me = read_cmdline();
+		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
 	}
-
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+#ifdef CONFIG_LIBPROCFS_VERSION
 	if (strcmp(fp->f_dentry->d_path, "/version") == 0) {
-		uk_pr_debug("\n\nI have identified version file\n\n");
 		return_me = read_version();
 		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
-		// uk_version();
-		// return vfscore_uiomove("", 1, uio);
 	}
+#endif /* CONFIG_LIBPROCFS_VERSION */
+#ifdef CONFIG_LIBPROCFS_FIELSYSTEMS
+	if (strcmp(fp->f_dentry->d_path, "/filesystems") == 0) {
+		return_me = read_filesystems();
+		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
+	}
+#endif /* CONFIG_LIBPROCFS_FIELSYSTEMS */
+#ifdef CONFIG_LIBPROCFS_MOUNTS
+	if (strcmp(fp->f_dentry->d_path, "/mounts") == 0) {
+		return_me = read_mounts();
+		return vfscore_uiomove(return_me, strlen(return_me) + 1, uio);
+	}
+#endif /* CONFIG_LIBPROCFS_MOUNTS */
 
 	return vfscore_uiomove(np->rn_buf + uio->uio_offset, len, uio);
 }
@@ -504,27 +579,8 @@ procfs_getattr(struct vnode *vnode, struct vattr *attr)
 	return 0;
 }
 
-static int
-procfs_open(struct vfscore_file *fp)
-{
-	char *path = fp->f_dentry->d_path;
-
-	uk_pr_debug("%s: path=%s\n", __func__, path);
-	uk_pr_debug("-------------------\n");
-
-	return 0;
-}
-
-static int
-procfs_close(struct vnode *vp __unused, struct vfscore_file *fp)
-{
-
-	uk_pr_debug("%s: fd=%d\n", __func__, fp->fd);
-
-	return 0;
-}
-
-
+#define procfs_open      ((vnop_open_t)vfscore_vop_nullop)
+#define procfs_close     ((vnop_close_t)vfscore_vop_nullop)
 #define procfs_seek			((vnop_seek_t)vfscore_vop_nullop)
 #define procfs_ioctl		((vnop_ioctl_t)vfscore_vop_einval)
 #define procfs_fsync		((vnop_fsync_t)vfscore_vop_nullop)

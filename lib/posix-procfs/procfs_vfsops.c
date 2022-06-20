@@ -37,6 +37,9 @@
 #include <vfscore/mount.h>
 #include <vfscore/dentry.h>
 
+/* in order to mount the fs similar to devfs */
+#include <uk/init.h>
+
 #include "procfs.h"
 
 extern struct vnops procfs_vnops;
@@ -70,6 +73,67 @@ static struct vfscore_fs_type fs_procfs = {
 
 UK_FS_REGISTER(fs_procfs);
 
+#ifdef CONFIG_LIBPROCFS_AUTOMOUNT
+static int procfs_automount(void)
+{
+	int ret;
+
+	uk_pr_info("Mount procfs to /proc...");
+	uk_pr_debug("\n\nMount procfs to /proc...\n\n");
+
+	/*
+	 * Try to create target mountpoint `/proc`. If creation fails
+	 * because it already exists, we are continuing.
+	 */
+	ret =  mkdir("/proc", S_IRWXU);
+	if (ret != 0 && errno != EEXIST) {
+		uk_pr_err("Failed to create /proc: %d\n", errno);
+		return -1;
+	}
+	ret = mount("", "/proc", "procfs", 0, NULL);
+	if (ret != 0) {
+		uk_pr_err("Failed to mount procfs to /proc: %d\n", errno);
+		return -1;
+	}
+
+	return 0;
+}
+
+/* after vfscore mounted '/' (priority 4): */
+uk_rootfs_initcall_prio(procfs_automount, 5);
+#endif
+
+
+/* 
+ * Create procfs entry helper
+ */
+static int 
+create_entry(struct mount *mp, struct procfs_node **np,
+			 const char *name, int type, int count)
+{
+	switch (count) {
+	case 0:
+		np[count] = procfs_allocate_node(name, type);
+		if (np == NULL) {
+			return ENOMEM;
+		}
+		mp->m_root->d_vnode->v_data = np[count];
+		break;
+	case 1:
+		np[count] = procfs_allocate_node(name, type);
+		np[count - 1]->rn_child = np[count];
+		break;
+	default:
+		np[count] = procfs_allocate_node(name, type);
+		np[count - 1]->rn_next = np[count];
+		break;
+
+	}
+
+	count++;
+	return count;
+}
+
 /*
  * Mount a file system.
  */
@@ -77,23 +141,31 @@ static int
 procfs_mount(struct mount *mp, const char *dev __unused,
 	    int flags __unused, const void *data __unused)
 {
-	struct procfs_node *np;
-	struct procfs_node *meminfo, *procinfo, *info;
 
-	/* Create a root node */
-	np = procfs_allocate_node("/", VDIR);
-	if (np == NULL)
-		return ENOMEM;
-	mp->m_root->d_vnode->v_data = np;
+	struct procfs_node *entries[10];
+	int count = 0;
 
-	meminfo = procfs_allocate_node("meminfo", VREG);
-	np->rn_child = meminfo;
+	count = create_entry(mp, entries, "/", VDIR, count);
+	if (count == ENOMEM) {
+		return count;
+	}
 
-	procinfo = procfs_allocate_node("procinfo", VREG);
-	meminfo->rn_next = procinfo;
-
-	info = procfs_allocate_node("version", VREG);
-	procinfo->rn_next = info;
+#ifdef CONFIG_LIBPROCFS_MEMINFO
+	uk_pr_debug("%s creating meminfo\n", __func__);
+	count = create_entry(mp, entries, "meminfo", VREG, count);
+#endif /* CONFIG_LIBPROCFS_MEMINFO */
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+	count = create_entry(mp, entries, "cmdline", VREG, count);
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+#ifdef CONFIG_LIBPROCFS_VERSION
+	count = create_entry(mp, entries, "version", VREG, count);
+#endif /* CONFIG_LIBPROCFS_VERSION */
+#ifdef CONFIG_LIBPROCFS_FIELSYSTEMS
+	count = create_entry(mp, entries, "filesystems", VREG, count);
+#endif /* CONFIG_LIBPROCFS_FIELSYSTEMS */
+#ifdef CONFIG_LIBPROCFS_MOUNTS
+	count = create_entry(mp, entries, "mounts", VREG, count);
+#endif /* CONFIG_LIBPROCFS_MOUNTS */
 	
 	return 0;
 }
@@ -109,6 +181,5 @@ static int
 procfs_unmount(struct mount *mp, int flags __unused)
 {
 	vfscore_release_mp_dentries(mp);
-	uk_pr_debug("\n\nin unmount\n\n");
 	return 0;
 }

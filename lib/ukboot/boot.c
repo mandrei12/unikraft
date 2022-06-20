@@ -81,11 +81,24 @@ struct thread_main_arg {
 	char **argv;
 };
 
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+struct thread_main_arg * return_arg;
+
+struct thread_main_arg *
+get_main_thread_arguments(void)
+{
+	return return_arg;
+}
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+
 static void main_thread_func(void *arg)
 {
 	int i;
 	int ret;
 	struct thread_main_arg *tma = arg;
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+	return_arg = arg;
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
 	uk_ctor_func_t *ctorfn;
 	uk_init_func_t *initfn;
 
