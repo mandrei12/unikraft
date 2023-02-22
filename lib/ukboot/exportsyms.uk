@@ -2,3 +2,4 @@ ukplat_entry_argp
 ukplat_entry
 main
 uk_version
+get_main_thread_arguments

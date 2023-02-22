@@ -79,6 +79,107 @@
 
 int main(int argc, char *argv[]) __weak;
 
+<<<<<<< HEAD
+static void main_thread_func(void *arg) __noreturn;
+
+struct thread_main_arg {
+	int argc;
+	char **argv;
+};
+
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+struct thread_main_arg * return_arg;
+
+struct thread_main_arg *
+get_main_thread_arguments(void)
+{
+	return return_arg;
+}
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+
+static void main_thread_func(void *arg)
+{
+	int i;
+	int ret;
+	struct thread_main_arg *tma = arg;
+#ifdef CONFIG_LIBPROCFS_CMDLINE
+	return_arg = arg;
+#endif /* CONFIG_LIBPROCFS_CMDLINE */
+	uk_ctor_func_t *ctorfn;
+	uk_init_func_t *initfn;
+
+	/**
+	 * Run init table
+	 */
+	uk_pr_info("Init Table @ %p - %p\n",
+		   &uk_inittab_start[0], &uk_inittab_end);
+	uk_inittab_foreach(initfn, uk_inittab_start, uk_inittab_end) {
+		UK_ASSERT(*initfn);
+		uk_pr_debug("Call init function: %p()...\n", *initfn);
+		ret = (*initfn)();
+		if (ret < 0) {
+			uk_pr_err("Init function at %p returned error %d\n",
+				  *initfn, ret);
+			ret = UKPLAT_CRASH;
+			goto exit;
+		}
+	}
+
+#ifdef CONFIG_LIBUKSP
+	uk_stack_chk_guard_setup();
+#endif
+
+	print_banner(stdout);
+	fflush(stdout);
+
+	/*
+	 * Application
+	 *
+	 * We are calling the application constructors right before calling
+	 * the application's main(). All of our Unikraft systems, VFS,
+	 * networking stack is initialized at this point. This way we closely
+	 * mimic what a regular user application (e.g., BSD, Linux) would expect
+	 * from its OS being initialized.
+	 */
+	uk_pr_info("Pre-init table at %p - %p\n",
+		   &__preinit_array_start[0], &__preinit_array_end);
+	uk_ctortab_foreach(ctorfn,
+			   __preinit_array_start, __preinit_array_end) {
+		if (!*ctorfn)
+			continue;
+
+		uk_pr_debug("Call pre-init constructor: %p()...\n", *ctorfn);
+		(*ctorfn)();
+	}
+
+	uk_pr_info("Constructor table at %p - %p\n",
+		   &__init_array_start[0], &__init_array_end);
+	uk_ctortab_foreach(ctorfn, __init_array_start, __init_array_end) {
+		if (!*ctorfn)
+			continue;
+
+		uk_pr_debug("Call constructor: %p()...\n", *ctorfn);
+		(*ctorfn)();
+	}
+
+	uk_pr_info("Calling main(%d, [", tma->argc);
+	for (i = 0; i < tma->argc; ++i) {
+		uk_pr_info("'%s'", tma->argv[i]);
+		if ((i + 1) < tma->argc)
+			uk_pr_info(", ");
+	}
+	uk_pr_info("])\n");
+
+	ret = main(tma->argc, tma->argv);
+	uk_pr_info("main returned %d, halting system\n", ret);
+	ret = (ret != 0) ? UKPLAT_CRASH : UKPLAT_HALT;
+
+exit:
+	ukplat_terminate(ret); /* does not return */
+}
+
+=======
+>>>>>>> staging
 /* defined in <uk/plat.h> */
 void ukplat_entry_argp(char *arg0, char *argb, __sz argb_len)
 {
